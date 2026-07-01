@@ -40,9 +40,12 @@ export default function LoginPage() {
             </label>
             <Button type="submit" className="w-full">Sign in to your seller account</Button>
           </form>
-          <p className="text-sm text-text-secondary">
-            New seller? <Link href="/seller/auth/register" className="text-primary hover:underline">Start selling →</Link>
-          </p>
+          <div className="text-center text-sm text-text-secondary">
+            New seller?{" "}
+            <Link href="/seller/auth/register" className="font-medium text-primary hover:underline">
+              Register now →
+            </Link>
+          </div>
         </div>
       </div>
       <div className="hidden w-1/3 bg-primary p-12 text-white lg:flex lg:flex-col lg:justify-center">
