@@ -22,12 +22,12 @@ const accountNumberRegex = /^\d{9,18}$/;
 export const businessInfoSchema = z.object({
   business_name: z.string().min(2, "Business name must be at least 2 characters"),
   business_type: z.enum(["proprietorship", "partnership", "private_limited", "llp", "public_limited"], {
-    errorMap: () => ({ message: "Please select a business type" }),
+    message: "Please select a business type",
   }),
   pan: z.string().regex(panRegex, "Invalid PAN format (e.g., AAAAA9999A)"),
   gst_number: z.string().regex(gstRegex, "Invalid GST number format").optional().or(z.literal("")),
   business_category: z.enum(["manufacturer", "distributor", "trader", "retailer"], {
-    errorMap: () => ({ message: "Please select a business category" }),
+    message: "Please select a business category",
   }),
   year_established: z.number().min(1900, "Invalid year").max(new Date().getFullYear(), "Year cannot be in future"),
 });
@@ -42,7 +42,7 @@ export const contactDetailsSchema = z.object({
   city: z.string().min(2, "City is required"),
   state: z.string().min(2, "State is required"),
   pincode: z.string().regex(/^\d{6}$/, "Pincode must be 6 digits"),
-  pickup_address_same: z.boolean().default(false),
+  pickup_address_same: z.boolean(),
   pickup_address: z.string().optional(),
   pickup_city: z.string().optional(),
   pickup_state: z.string().optional(),
@@ -88,10 +88,14 @@ export const kycDocumentsSchema = z.object({
   gst_certificate: z.string().optional(),
   cancelled_cheque: z.string().min(1, "Cancelled cheque/bank statement is required"),
   business_registration: z.string().optional(),
-  agreement_accepted: z.boolean().refine((val) => val === true, {
+  agreement_accepted: z.boolean(),
+}).refine(
+  (data) => data.agreement_accepted === true,
+  {
     message: "You must accept the seller agreement",
-  }),
-});
+    path: ["agreement_accepted"],
+  }
+);
 
 // Combined schema for all steps
 export const sellerRegistrationSchema = businessInfoSchema
