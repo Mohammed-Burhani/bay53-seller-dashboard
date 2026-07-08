@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, Menu, PanelLeftClose, PanelLeft, Search } from "lucide-react";
+import { Bell, Menu, PanelLeftClose, PanelLeft, Search, LogOut } from "lucide-react";
 import { Breadcrumb } from "../ui/Breadcrumb";
 import { useBadgeCounts } from "@/lib/queries/useDashboard";
 import { GlobalSearch } from "./GlobalSearch";
+import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 
 interface HeaderProps {
   breadcrumbs: { label: string; href?: string }[];
@@ -16,8 +18,19 @@ interface HeaderProps {
 export function Header({ breadcrumbs, onMenuClick, onToggleCollapse, collapsed }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const { data: badges } = useBadgeCounts();
+  const supabase = createClient();
 
   useEffectCmdK(() => setSearchOpen(true));
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      toast.success("Logged out successfully");
+      window.location.href = "/seller/auth/login";
+    } catch (error) {
+      toast.error("Failed to log out");
+    }
+  };
 
   return (
     <>
@@ -66,6 +79,14 @@ export function Header({ breadcrumbs, onMenuClick, onToggleCollapse, collapsed }
                 {badges.unreadNotifications}
               </span>
             )}
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex h-8 w-8 items-center justify-center rounded-[6px] text-text-secondary hover:bg-surface"
+            aria-label="Logout"
+          >
+            <LogOut className="h-4 w-4" />
           </button>
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
             S

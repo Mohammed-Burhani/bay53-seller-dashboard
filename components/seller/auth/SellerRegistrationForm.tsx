@@ -1,10 +1,12 @@
+
 "use client";
 
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Check, Building2, User, CreditCard, FileText } from "lucide-react";
+import { Check, Building2, User, CreditCard, FileText, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { z } from "zod";
 import { Input } from "@/components/seller/ui/Input";
 import { Select } from "@/components/seller/ui/Select";
 import { Textarea } from "@/components/seller/ui/Textarea";
@@ -12,6 +14,7 @@ import { FileUpload } from "@/components/seller/ui/FileUpload";
 import { Button } from "@/components/seller/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/seller/ui/Card";
 import { cn } from "@/lib/utils/helpers";
+import { createClient } from "@/lib/supabase/client";
 import {
   businessInfoSchema,
   contactDetailsSchema,
@@ -26,39 +29,60 @@ import {
   type KYCDocumentsInput,
 } from "@/lib/validations/seller-registration.schema";
 
-type Step = 1 | 2 | 3 | 4;
+const authSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  confirm_password: z.string(),
+}).refine((data) => data.password === data.confirm_password, {
+  message: "Passwords do not match",
+  path: ["confirm_password"],
+});
+
+type AuthInput = z.infer<typeof authSchema>;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 const STEPS = [
-  { number: 1, title: "Business Info", icon: Building2, schema: businessInfoSchema },
-  { number: 2, title: "Contact Details", icon: User, schema: contactDetailsSchema },
-  { number: 3, title: "Bank Details", icon: CreditCard, schema: bankDetailsSchema },
-  { number: 4, title: "KYC Documents", icon: FileText, schema: kycDocumentsSchema },
+  { number: 1, title: "Account", icon: Mail, schema: authSchema },
+  { number: 2, title: "Business Info", icon: Building2, schema: businessInfoSchema },
+  { number: 3, title: "Contact Details", icon: User, schema: contactDetailsSchema },
+  { number: 4, title: "Bank Details", icon: CreditCard, schema: bankDetailsSchema },
+  { number: 5, title: "KYC Documents", icon: FileText, schema: kycDocumentsSchema },
 ] as const;
 
 export function SellerRegistrationForm() {
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
-  const [formData, setFormData] = useState<Partial<BusinessInfoInput & ContactDetailsInput & BankDetailsInput & KYCDocumentsInput>>({});
+  const [formData, setFormData] = useState<Partial<AuthInput & BusinessInfoInput & ContactDetailsInput & BankDetailsInput & KYCDocumentsInput>>({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const supabase = createClient();
 
-  // Step 1: Business Info
+  // Step 1: Auth
+  const authForm = useForm<AuthInput>({
+    resolver: zodResolver(authSchema),
+    defaultValues: formData,
+  });
+
+  // Step 2: Business Info
   const businessForm = useForm<BusinessInfoInput>({
     resolver: zodResolver(businessInfoSchema),
     defaultValues: formData,
   });
 
-  // Step 2: Contact Details
+  // Step 3: Contact Details
   const contactForm = useForm<ContactDetailsInput>({
     resolver: zodResolver(contactDetailsSchema),
     defaultValues: { pickup_address_same: false, ...formData },
   });
 
-  // Step 3: Bank Details
+  // Step 4: Bank Details
   const bankForm = useForm<BankDetailsInput>({
     resolver: zodResolver(bankDetailsSchema),
     defaultValues: formData,
   });
 
-  // Step 4: KYC Documents
+  // Step 5: KYC Documents
   const kycForm = useForm<KYCDocumentsInput>({
     resolver: zodResolver(kycDocumentsSchema),
     defaultValues: { agreement_accepted: false, ...formData },
@@ -66,10 +90,11 @@ export function SellerRegistrationForm() {
 
   const getCurrentForm = () => {
     switch (currentStep) {
-      case 1: return businessForm;
-      case 2: return contactForm;
-      case 3: return bankForm;
-      case 4: return kycForm;
+      case 1: return authForm;
+      case 2: return businessForm;
+      case 3: return contactForm;
+      case 4: return bankForm;
+      case 5: return kycForm;
     }
   };
 
@@ -82,7 +107,7 @@ export function SellerRegistrationForm() {
       setFormData((prev) => ({ ...prev, ...values }));
       setCompletedSteps((prev) => new Set(prev).add(currentStep));
       
-      if (currentStep < 4) {
+      if (currentStep < 5) {
         setCurrentStep((prev) => (prev + 1) as Step);
       }
     }
@@ -99,17 +124,56 @@ export function SellerRegistrationForm() {
     const isValid = await form.trigger();
 
     if (isValid) {
-      const values = form.getValues();
-      const finalData = { ...formData, ...values };
-      
-      // Mock submission
-      toast.success("Registration submitted successfully! Our team will review your application within 24-48 hours.");
-      console.log("Registration data:", finalData);
-      
-      // Redirect to login or pending page
-      setTimeout(() => {
-        window.location.href = "/seller/auth/login";
-      }, 2000);
+      setIsSubmitting(true);
+      try {
+        const values = form.getValues();
+        const finalData = { ...formData, ...values };
+
+        // First, sign up the user
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: finalData.email!,
+          password: finalData.password!,
+        });
+
+        if (authError) {
+          toast.error(authError.message);
+          return;
+        }
+
+        if (!authData.user) {
+          toast.error("Failed to create account");
+          return;
+        }
+
+        // Then create the seller profile
+        const { error: sellerError } = await supabase
+          .from("sellers")
+          .insert({
+            user_id: authData.user.id,
+            store_name: finalData.business_name!,
+            business_type: finalData.business_type!,
+            gst_number: finalData.gst_number,
+            pan_number: finalData.pan,
+            kyc_status: "pending",
+            onboarding_complete: true,
+          });
+
+        if (sellerError) {
+          toast.error(sellerError.message);
+          return;
+        }
+
+        toast.success("Registration submitted successfully! Our team will review your application within 24-48 hours.");
+        
+        // Redirect to dashboard
+        setTimeout(() => {
+          window.location.href = "/seller/dashboard";
+        }, 2000);
+      } catch (error) {
+        toast.error("An unexpected error occurred");
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -152,6 +216,61 @@ export function SellerRegistrationForm() {
       {/* Form Content */}
       <Card>
         {currentStep === 1 && (
+          <>
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Create Your Account</h2>
+              <p className="text-sm text-text-secondary">Start your seller journey</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                label="Email Address"
+                type="email"
+                placeholder="seller@example.com"
+                error={authForm.formState.errors.email?.message}
+                icon={<Mail className="h-4 w-4" />}
+                {...authForm.register("email")}
+              />
+
+              <div className="relative">
+                <Input
+                  label="Password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  error={authForm.formState.errors.password?.message}
+                  icon={<Lock className="h-4 w-4" />}
+                  {...authForm.register("password")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-10 text-text-muted hover:text-text-primary"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+
+              <div className="relative">
+                <Input
+                  label="Confirm Password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  error={authForm.formState.errors.confirm_password?.message}
+                  icon={<Lock className="h-4 w-4" />}
+                  {...authForm.register("confirm_password")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-10 text-text-muted hover:text-text-primary"
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </CardContent>
+          </>
+        )}
+
+        {currentStep === 2 && (
           <>
             <CardHeader>
               <h2 className="text-lg font-semibold">Business Information</h2>
@@ -207,7 +326,7 @@ export function SellerRegistrationForm() {
           </>
         )}
 
-        {currentStep === 2 && (
+        {currentStep === 3 && (
           <>
             <CardHeader>
               <h2 className="text-lg font-semibold">Contact Details</h2>
@@ -324,7 +443,7 @@ export function SellerRegistrationForm() {
           </>
         )}
 
-        {currentStep === 3 && (
+        {currentStep === 4 && (
           <>
             <CardHeader>
               <h2 className="text-lg font-semibold">Bank Account Details</h2>
@@ -382,7 +501,7 @@ export function SellerRegistrationForm() {
           </>
         )}
 
-        {currentStep === 4 && (
+        {currentStep === 5 && (
           <>
             <CardHeader>
               <h2 className="text-lg font-semibold">KYC Documents</h2>
@@ -502,13 +621,13 @@ export function SellerRegistrationForm() {
             Save Draft
           </Button>
 
-          {currentStep < 4 ? (
+          {currentStep < 5 ? (
             <Button type="button" onClick={handleNext}>
               Continue
             </Button>
           ) : (
-            <Button type="button" onClick={handleSubmit}>
-              Submit Application
+            <Button type="button" onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? "Submitting..." : "Submit Application"}
             </Button>
           )}
         </div>
@@ -516,3 +635,4 @@ export function SellerRegistrationForm() {
     </div>
   );
 }
+
